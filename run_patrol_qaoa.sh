@@ -7,4 +7,4 @@ if [[ ! -x "$PY" ]]; then
   echo "  cd \"$ROOT\" && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
   exit 1
 fi
-exec "$PY" "$ROOT/projects/two_qubit_micro_route/drone_route_quantum_demo.py" "$@"
+exec "$PY" "$ROOT/projects/drone_patrol_qaoa/drone_patrol_qaoa.py" "$@"

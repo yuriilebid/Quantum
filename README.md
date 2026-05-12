@@ -1,93 +1,87 @@
-# Drone route quantum demo
+# Quantum drone demos (CS5250)
 
-## What this is
+Two small **drone-themed** quantum optimization demos, split into separate folders.
 
-A small **robotics-flavored** example: a “drone” picks the cheapest of **four micro-routes**, encoded as energies for the two-qubit computational basis states `|00>`, `|01>`, `|10>`, `|11>`.
+## Layout
 
-- **Classical baseline:** pick the minimum cost instantly.
-- **Hybrid quantum part:** a **2-qubit variational ansatz** minimizes `⟨H⟩` (same structure as VQE / QAOA-style workflows).
+| Path | What it is |
+|------|----------------|
+| [`projects/two_qubit_micro_route/drone_route_quantum_demo.py`](projects/two_qubit_micro_route/drone_route_quantum_demo.py) | **Two-qubit** “pick the cheapest of four micro-routes” as a diagonal Pauli Hamiltonian + local VQE; optional **one** IBM `Estimator` job. |
+| [`projects/drone_patrol_qaoa/drone_patrol_qaoa.py`](projects/drone_patrol_qaoa/drone_patrol_qaoa.py) | **Larger MaxCut / QAOA** “patrol sectors” graph: long **Aer statevector** classical search (budget wall time) vs optional **one** hardware ⟨−H⟩ readout. See [`projects/drone_patrol_qaoa/README.md`](projects/drone_patrol_qaoa/README.md) for honest timing claims. |
+| [`run_demo.sh`](run_demo.sh) | Runs the two-qubit demo with `.venv/bin/python`. |
+| [`run_patrol_qaoa.sh`](run_patrol_qaoa.sh) | Runs the patrol QAOA script. |
+| [`requirements.txt`](requirements.txt) | Dependencies (`qiskit`, `qiskit-aer`, `qiskit-ibm-runtime`, …). |
 
-The script `drone_route_quantum_demo.py` implements this. Optional `--ibm` sends **one** `Estimator` job to IBM Quantum after local optimization (avoids hundreds of queued jobs during VQE).
+Figures from the two-qubit demo live under [`projects/two_qubit_micro_route/quantum_demo_figures/`](projects/two_qubit_micro_route/quantum_demo_figures/).
 
-## Honest framing for talks
+Both demos accept **`--log-file PATH`**: stdout and stderr are mirrored to that UTF-8 text file while still printing to the terminal (each run overwrites the file).
 
-On today’s **NISQ** hardware, for a toy problem this small, **classical methods are usually faster and more accurate**. A fair “advantage” story is not “quantum is faster on two qubits,” but:
+---
 
-1. Showing a real **quantum-in-the-loop** pipeline on hardware.
-2. The same **combinatorial / optimization formulation** scales in research toward larger graphs and, in the long term, fault-tolerant systems.
+## Two-qubit micro-route demo
 
-Noise and decoherence shifting `⟨H⟩` on a real chip is a feature for a slide: **physics**, not failure of the idea.
+A “drone” picks the cheapest of **four** routes, encoded as energies for `|00⟩…|11⟩`.
 
-## Hamiltonian (diagonal in the Z basis)
+- **Classical baseline:** minimum over four numbers.
+- **Hybrid part:** a **2-qubit** variational ansatz minimizes `⟨H⟩` (VQE-style).
+- Optional `--ibm` sends **one** `Estimator` job after local optimization.
 
-Given four energies `E_00, E_01, E_10, E_11` for the basis states, we build
+### Honest framing (NISQ)
 
-`H = c₀ II + c₁ ZI + c₂ IZ + c₃ ZZ`
+For a toy **two-qubit** problem, classical is usually faster and more accurate. A fair story is **quantum-in-the-loop** on hardware and the **same optimization template** scaling to harder routing / scheduling research—not “speedup at two qubits.”
 
-using Qiskit’s Pauli string convention: the **rightmost** character is qubit **0**.
+### Hamiltonian (diagonal in Z)
 
-Solving the linear system recovers `c₀ … c₃` so the eigenvalues on `|00>…|11>` match the four route costs.
+Given four route costs, build `H = c₀ II + c₁ ZI + c₂ IZ + c₃ ZZ` (rightmost Pauli character = qubit **0**).
 
-## Index to bitstrings
+### IBM Quantum
 
-Index `k ∈ {0,1,2,3}` maps to `|q₁ q₀>` as:
+1. [IBM Quantum](https://quantum.ibm.com) → API token → `export QISKIT_IBM_TOKEN='…'`
+2. List backends:  
+   `.venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --list-backends`
+3. Run:  
+   `./run_demo.sh --ibm`  
+   or pin `--backend ibm_sherbrooke` (names vary by account).
 
-- `q₀ = k & 1`
-- `q₁ = (k >> 1) & 1`
+`QISKIT_IBM_INSTANCE` is optional for paid / multi-instance accounts.
 
-## IBM Quantum usage
+### Environment and Conda
 
-1. Create an account at [IBM Quantum](https://quantum.ibm.com) and create an **API token** (Account → API token).
-2. Export it: `export QISKIT_IBM_TOKEN='…'`
-3. See which real devices your plan can use (names change by region/plan):
-
-   ```bash
-   .venv/bin/python drone_route_quantum_demo.py --list-backends
-   ```
-
-4. Run on hardware. By default the script uses **`--backend auto`**, which picks an **operational, non-simulator** system with at least **2 qubits** and the **shortest queue** (`least_busy`). You can still pin a name from the list:
-
-   ```bash
-   .venv/bin/python drone_route_quantum_demo.py --ibm
-   .venv/bin/python drone_route_quantum_demo.py --ibm --backend ibm_sherbrooke
-   ```
-
-If you see `No backend matches the criteria` for a specific name (e.g. `ibm_kyiv`), that system is **not on your instance** or is unavailable — use `--list-backends` or `auto`.
-
-Paid / multi-instance accounts can set the instance explicitly:
-
-```bash
-export QISKIT_IBM_INSTANCE='hub/group/project'   # or the CRN string from the IBM console
-# or per run:
-.venv/bin/python drone_route_quantum_demo.py --ibm --instance '…'
-```
-
-## Environment and Conda
-
-If your prompt shows **both** `(.venv)` and `(base)`, `python` may still point at **Conda’s** interpreter (without Qiskit). Fix by:
-
-- `conda deactivate` until `(base)` is gone, then activate the venv; or  
-- Always call **`.venv/bin/python`** explicitly; or  
-- Use **`./run_demo.sh`**, which invokes `.venv/bin/python` directly.
-
-Install dependencies once:
+If both `(.venv)` and `(base)` show in your prompt, `python` may still be Conda’s. Prefer **`.venv/bin/python`**, **`./run_demo.sh`**, or `conda deactivate` until `(base)` is gone.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-## Files
+### Plots (two-qubit demo)
 
-| File | Role |
-|------|------|
-| `drone_route_quantum_demo.py` | Main demo |
-| `run_demo.sh` | Runs the demo with the project venv’s Python |
-| `requirements.txt` | Python dependencies |
+```bash
+.venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --plot
+.venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --ibm --plot
+```
 
-## Implementation notes
+Default figure directory: `projects/two_qubit_micro_route/quantum_demo_figures/`.
 
-- On older Qiskit builds, the script falls back to `qiskit.primitives.estimator.Estimator` if `StatevectorEstimator` is not importable from `qiskit.primitives`.
-- **Local VQE** uses `StatevectorEstimator` (noiseless exact expectation values).
-- **IBM path** uses `generate_preset_pass_manager(backend=…)` and `EstimatorV2(mode=backend)` in **job mode** (no `Session`), which is usually simpler on free-tier access than session mode.
-- The ansatz is `real_amplitudes` with linear entanglement (Qiskit circuit library).
+| File | Content |
+|------|--------|
+| `route_costs.png` | Four route costs; classical minimum highlighted |
+| `vqe_energy_trace.png` | ⟨H⟩ vs COBYLA step (noiseless) |
+| `ansatz_optimal.png` | Circuit at optimized angles |
+| `energy_comparison.png` | Classical vs VQE vs IBM (if `--ibm`) |
+
+### Implementation notes
+
+- Local VQE uses `StatevectorEstimator` when available.
+- IBM path: `generate_preset_pass_manager` + `EstimatorV2(mode=backend)` in job mode.
+- Two-qubit ansatz: `real_amplitudes` with linear entanglement.
+
+---
+
+## Patrol QAOA (larger)
+
+See [`projects/drone_patrol_qaoa/README.md`](projects/drone_patrol_qaoa/README.md). Quick smoke test:
+
+```bash
+.venv/bin/python projects/drone_patrol_qaoa/drone_patrol_qaoa.py --nodes 14 --classical-budget-sec 8
+```

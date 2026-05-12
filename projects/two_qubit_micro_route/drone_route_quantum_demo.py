@@ -7,9 +7,19 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from scipy.optimize import minimize
+
+
+def _run_log():
+    p = Path(__file__).resolve().parent.parent
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+    import run_log  # noqa: PLC0415
+
+    return run_log
 
 try:
     from qiskit import QuantumCircuit
@@ -23,7 +33,8 @@ except ModuleNotFoundError as exc:
             "  Install into the project venv:\n"
             "    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt\n"
             "  Run with:\n"
-            "    .venv/bin/python drone_route_quantum_demo.py\n"
+            "    .venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py\n"
+            "    or:  ./run_demo.sh\n"
             "  If both Conda (base) and a venv are active, run `conda deactivate` first — "
             "otherwise `python` may point at Conda without qiskit.\n"
             "  See README.md.",
@@ -86,12 +97,26 @@ def make_vqe_energy_fn(state: VQEState):
     return energy
 
 
-def run_local_vqe(h: SparsePauliOp, ansatz: QuantumCircuit, x0: np.ndarray) -> tuple[np.ndarray, float]:
+def run_local_vqe(
+    h: SparsePauliOp,
+    ansatz: QuantumCircuit,
+    x0: np.ndarray,
+    track_vqe_history: bool = False,
+) -> tuple[np.ndarray, float, list[float] | None]:
     est = StatevectorEstimator()
     state = VQEState(h, ansatz, est)
     energy_fn = make_vqe_energy_fn(state)
-    res = minimize(energy_fn, x0, method="COBYLA", options={"maxiter": 200})
-    return res.x, float(res.fun)
+    history: list[float] | None = None
+    callback = None
+    if track_vqe_history:
+        history = [float(energy_fn(x0))]
+
+        def callback(xk: np.ndarray) -> None:
+            assert history is not None
+            history.append(float(energy_fn(np.asarray(xk))))
+
+    res = minimize(energy_fn, x0, method="COBYLA", options={"maxiter": 200}, callback=callback)
+    return res.x, float(res.fun), history
 
 
 def _ibm_runtime_service(instance: str | None):
@@ -166,6 +191,24 @@ def _resolve_backend(service, backend_name: str, instance: str | None):
         ) from e
 
 
+def _ibm_isa_and_observable(
+    h: SparsePauliOp,
+    ansatz: QuantumCircuit,
+    theta: np.ndarray,
+    backend_name: str,
+    instance: str | None,
+):
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
+    service = _ibm_runtime_service(instance)
+    backend = _resolve_backend(service, backend_name, instance)
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=2)
+    bound = ansatz.assign_parameters(theta)
+    isa = pm.run(bound)
+    obs = h.apply_layout(isa.layout)
+    return isa, obs, backend
+
+
 def run_ibm_single_energy(
     h: SparsePauliOp,
     ansatz: QuantumCircuit,
@@ -174,25 +217,95 @@ def run_ibm_single_energy(
     instance: str | None,
 ) -> tuple[float, str]:
     try:
-        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
         from qiskit_ibm_runtime import EstimatorV2
     except ImportError as e:
         raise SystemExit(
             "Install dependencies: pip install -r requirements.txt\n" + str(e)
         ) from e
 
-    service = _ibm_runtime_service(instance)
-    backend = _resolve_backend(service, backend_name, instance)
-
-    pm = generate_preset_pass_manager(backend=backend, optimization_level=2)
-    bound = ansatz.assign_parameters(theta)
-    isa = pm.run(bound)
-    obs = h.apply_layout(isa.layout)
-
+    isa, obs, backend = _ibm_isa_and_observable(h, ansatz, theta, backend_name, instance)
     estimator = EstimatorV2(mode=backend)
     job = estimator.run([(isa, obs)])
     evs = job.result()[0].data.evs
     return float(np.real(evs)), backend.name
+
+
+def write_demo_figures(
+    figure_dir: Path,
+    route_costs: list[float],
+    k_min: int,
+    e_min: float,
+    e_vqe: float,
+    ansatz: QuantumCircuit,
+    theta_best: np.ndarray,
+    vqe_history: list[float] | None,
+    e_hw: float | None,
+    hw_backend: str | None,
+) -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError as e:
+        raise SystemExit(
+            "Plotting needs matplotlib. Install: .venv/bin/pip install matplotlib\n" + str(e)
+        ) from e
+
+    figure_dir.mkdir(parents=True, exist_ok=True)
+
+    labels = ["|00⟩", "|01⟩", "|10⟩", "|11⟩"]
+    colors = ["#4C72B0" if i != k_min else "#C44E52" for i in range(4)]
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    y = np.arange(4)
+    ax.barh(y, route_costs, color=colors, edgecolor="black", linewidth=0.4)
+    ax.set_yticks(y, labels)
+    ax.set_xlabel("Route cost (arbitrary units)")
+    ax.set_title("Four micro-routes (red = classical minimum)")
+    ax.invert_yaxis()
+    fig.tight_layout()
+    fig.savefig(figure_dir / "route_costs.png", dpi=160)
+    plt.close(fig)
+
+    if vqe_history and len(vqe_history) > 0:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        ax.plot(range(len(vqe_history)), vqe_history, color="#4C72B0", marker="o", markersize=3)
+        ax.axhline(e_min, color="#55A868", linestyle="--", linewidth=1.5, label="Classical minimum")
+        ax.set_xlabel("COBYLA step (each point is <H> at current angles)")
+        ax.set_ylabel("⟨H⟩ (noiseless simulation)")
+        ax.set_title("Local VQE energy trace")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(figure_dir / "vqe_energy_trace.png", dpi=160)
+        plt.close(fig)
+
+    try:
+        bound = ansatz.assign_parameters(theta_best)
+        cfig = bound.draw(output="mpl", style="iqp", fold=60)
+        cfig.savefig(figure_dir / "ansatz_optimal.png", dpi=160, bbox_inches="tight")
+        plt.close(cfig)
+    except Exception as exc:
+        print(f"Could not save circuit diagram: {exc}", file=sys.stderr)
+
+    names = ["Classical\nminimum", "VQE\n(Statevector)"]
+    values = [e_min, e_vqe]
+    colors_b = ["#55A868", "#4C72B0"]
+    if e_hw is not None:
+        names.append(f"IBM\n({hw_backend or 'hardware'})")
+        values.append(e_hw)
+        colors_b.append("#C44E52")
+    fig, ax = plt.subplots(figsize=(6, 4))
+    x = np.arange(len(names))
+    ax.bar(x, values, color=colors_b, edgecolor="black", linewidth=0.5)
+    ax.set_xticks(x, names)
+    ax.set_ylabel("Energy / ⟨H⟩")
+    title = "Classical vs simulated vs hardware" if e_hw is not None else "Classical vs simulated (VQE)"
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(figure_dir / "energy_comparison.png", dpi=160)
+    plt.close(fig)
+
+    print(f"\nSaved figures under: {figure_dir.resolve()}")
 
 
 def main() -> None:
@@ -222,8 +335,36 @@ def main() -> None:
         action="store_true",
         help="List operational non-simulator backends for this account, then exit.",
     )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Save PNG figures (route costs, VQE trace, ansatz diagram, energy comparison).",
+    )
+    parser.add_argument(
+        "--figure-dir",
+        type=str,
+        default=str(Path(__file__).resolve().parent / "quantum_demo_figures"),
+        help="Directory for --plot output (created if missing).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Mirror stdout and stderr to this UTF-8 text file (terminal output unchanged).",
+    )
     args = parser.parse_args()
 
+    if args.log_file:
+        _run_log().install(args.log_file)
+    try:
+        _main_body(args)
+    finally:
+        if args.log_file:
+            _run_log().uninstall()
+
+
+def _main_body(args: argparse.Namespace) -> None:
     if args.list_backends:
         list_ibm_backends(args.instance)
         return
@@ -242,7 +383,9 @@ def main() -> None:
     rng = np.random.default_rng(42)
     x0 = rng.uniform(-np.pi, np.pi, ansatz.num_parameters)
 
-    theta_best, e_vqe = run_local_vqe(h, ansatz, x0)
+    theta_best, e_vqe, vqe_hist = run_local_vqe(
+        h, ansatz, x0, track_vqe_history=args.plot
+    )
     print("\n--- Local VQE (StatevectorEstimator, noiseless) ---")
     print(f"Minimum <H> after VQE: {e_vqe:.6f}")
     print(f"Ansatz parameters (angles): {np.round(theta_best, 4)}")
@@ -250,6 +393,8 @@ def main() -> None:
     gap = abs(e_vqe - e_min)
     print(f"Gap vs classical minimum: {gap:.6e}")
 
+    e_hw: float | None = None
+    resolved_backend: str | None = None
     if args.ibm:
         print("\n--- Single <H> readout on IBM Quantum ---")
         try:
@@ -266,6 +411,20 @@ def main() -> None:
             "\nFor slides: noise and decoherence shift the expectation; the workflow is the "
             "same family used for larger planning problems, where scalable quantum heuristics "
             "are researched — not “speedup” on two qubits."
+        )
+
+    if args.plot:
+        write_demo_figures(
+            Path(args.figure_dir),
+            route_costs,
+            k_min,
+            e_min,
+            e_vqe,
+            ansatz,
+            theta_best,
+            vqe_hist,
+            e_hw,
+            resolved_backend,
         )
 
 

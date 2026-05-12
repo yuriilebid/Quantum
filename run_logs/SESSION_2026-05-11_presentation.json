@@ -1,0 +1,125 @@
+{
+  "schema": "quantum-demo-session-v1",
+  "session_date": "2026-05-11",
+  "host": "MacBookAir",
+  "security_note": "API token export omitted. Rotate token if it was ever exposed.",
+  "runs": [
+    {
+      "id": 1,
+      "command": "./run_demo.sh",
+      "script": "projects/two_qubit_micro_route/drone_route_quantum_demo.py",
+      "flags": [],
+      "metrics": {
+        "route_costs": [10.0, 3.0, 8.0, 12.0],
+        "classical_optimum_index": 1,
+        "classical_optimum_energy": 3.0,
+        "vqe_minimum_H": 3.0,
+        "gap_vs_classical": 3.145764e-09,
+        "vqe_angles": [2.7191, 0.9192, 3.5832, 1.3401, -2.8721, 2.7769]
+      }
+    },
+    {
+      "id": 2,
+      "command": ".venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --plot",
+      "script": "two_qubit_micro_route",
+      "flags": ["--plot"],
+      "metrics": {
+        "classical_optimum_energy": 3.0,
+        "vqe_minimum_H": 3.0,
+        "gap_vs_classical": 3.145764e-09,
+        "figures_dir": "projects/two_qubit_micro_route/quantum_demo_figures"
+      }
+    },
+    {
+      "id": 3,
+      "command": ".venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --ibm",
+      "script": "two_qubit_micro_route",
+      "flags": ["--ibm"],
+      "outcome": "missing_QISKIT_IBM_TOKEN"
+    },
+    {
+      "id": 4,
+      "command": "export QISKIT_IBM_TOKEN=<REDACTED>",
+      "note": "Do not commit real tokens"
+    },
+    {
+      "id": 5,
+      "command": ".venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --ibm",
+      "script": "two_qubit_micro_route",
+      "flags": ["--ibm"],
+      "metrics": {
+        "ibm_backend": "ibm_fez",
+        "H_hardware": 3.189838,
+        "classical_minimum": 3.0,
+        "bias_vs_exact_minimum": 0.189838
+      }
+    },
+    {
+      "id": 6,
+      "command": ".venv/bin/python projects/two_qubit_micro_route/drone_route_quantum_demo.py --ibm --plot",
+      "script": "two_qubit_micro_route",
+      "flags": ["--ibm", "--plot"],
+      "metrics": {
+        "ibm_backend": "ibm_fez",
+        "H_hardware": 3.181989,
+        "bias_vs_exact_minimum": 0.181989
+      }
+    },
+    {
+      "id": 7,
+      "command": ".venv/bin/python projects/drone_patrol_qaoa/drone_patrol_qaoa.py --nodes 14 --classical-budget-sec 15",
+      "script": "drone_patrol_qaoa",
+      "flags": ["--nodes", "14", "--classical-budget-sec", "15"],
+      "metrics": {
+        "classical_mode": "aer-vqe",
+        "budget_requested_sec": 15,
+        "wall_time_classical_sec": 17.6,
+        "sectors_n": 14,
+        "edges_count": 27,
+        "qaoa_reps": 2,
+        "aer_energy_evaluations": 649,
+        "best_min_neg_H": -18.522809,
+        "exact_max_cut": 21.0,
+        "exact_assignment": 126,
+        "heuristic_H_Aer": 18.522809
+      }
+    },
+    {
+      "id": 8,
+      "command": ".venv/bin/python projects/drone_patrol_qaoa/drone_patrol_qaoa.py --nodes 18 --classical-budget-sec 1000",
+      "script": "drone_patrol_qaoa",
+      "flags": ["--nodes", "18", "--classical-budget-sec", "1000"],
+      "metrics": {
+        "classical_mode": "aer-vqe",
+        "budget_requested_sec": 1000,
+        "wall_time_classical_sec": 1011.0,
+        "sectors_n": 18,
+        "edges_count": 47,
+        "qaoa_reps": 2,
+        "aer_energy_evaluations": 5203,
+        "best_min_neg_H": -30.557068,
+        "exact_max_cut": 34.0,
+        "exact_assignment": 79134,
+        "heuristic_H_Aer": 30.557068
+      }
+    },
+    {
+      "id": 9,
+      "command": ".venv/bin/python projects/drone_patrol_qaoa/drone_patrol_qaoa.py --nodes 18 --classical-budget-sec 10 --ibm",
+      "script": "drone_patrol_qaoa",
+      "flags": ["--nodes", "18", "--classical-budget-sec", "10", "--ibm"],
+      "metrics": {
+        "classical_mode": "aer-vqe",
+        "budget_requested_sec": 10,
+        "wall_time_classical_sec": 17.0,
+        "aer_energy_evaluations": 121,
+        "best_min_neg_H": -24.755126,
+        "exact_max_cut": 34.0,
+        "exact_assignment": 79134,
+        "heuristic_H_Aer": 24.755126,
+        "ibm_backend": "ibm_fez",
+        "neg_H_hardware": -23.83005
+      }
+    }
+  ]
+}
